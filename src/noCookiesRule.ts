@@ -1,5 +1,10 @@
 
-import ErrorTolerantWalker = require('./ErrorTolerantWalker');
+import * as ts from 'typescript';
+import * as Lint from 'tslint/lib/lint';
+
+//import ErrorTolerantWalker = require('./utils/ErrorTolerantWalker');
+import ScopedSymbolTrackingWalker = require('./utils/ScopedSymbolTrackingWalker');
+import AstUtils = require('./utils/AstUtils');
 
 /**
  * Implementation of the no-cookies-rule rule.
@@ -8,22 +13,34 @@ export class Rule extends Lint.Rules.AbstractRule {
     public static FAILURE_STRING = 'Forbidden call to document.cookie';
 
     public apply(sourceFile : ts.SourceFile): Lint.RuleFailure[] {
+        var compilerOptions: ts.CompilerOptions ;
+        //compilerOptions = Lint.createCompilerOptions();
+        //compilerOptions.module = ts.ModuleKind.CommonJS;
+        //compilerOptions.noResolve = false;
+        compilerOptions = <ts.CompilerOptions>{ target: ts.ScriptTarget.ES5, module: ts.ModuleKind.CommonJS, noResolve: false};
+        var curProgram: ts.Program = ts.createProgram([sourceFile.fileName], compilerOptions);
+        var curTypeChecker: ts.TypeChecker = curProgram.getTypeChecker();
+
         var documentRegistry = ts.createDocumentRegistry();
-        var languageServiceHost = Lint.createLanguageServiceHost('file.ts', sourceFile.getFullText());
+        var languageServiceHost = Lint.createLanguageServiceHost('file.ts' /* sourceFile.fileName*/, sourceFile.getFullText());
         var languageService : ts.LanguageService = ts.createLanguageService(languageServiceHost, documentRegistry);
-        return this.applyWithWalker(new NoCookiesWalker(sourceFile, this.getOptions(), languageService));
+        //return this.applyWithWalker(new NoCookiesWalker(sourceFile, this.getOptions(), languageService));
+        //return this.applyWithWalker(new NoCookiesWalker(sourceFile, this.getOptions(), languageService, curTypeChecker)); //workarounds failed
+        return this.applyWithWalker(new NoCookiesWalker(curProgram.getSourceFile(sourceFile.fileName), this.getOptions(), languageService, curTypeChecker)); //workarounds
     }
 }
 
-class NoCookiesWalker extends ErrorTolerantWalker {
+class NoCookiesWalker extends ScopedSymbolTrackingWalker /* ErrorTolerantWalker Lint.RuleWalker*/ {
 
-    private languageService : ts.LanguageService;
-    private typeChecker : ts.TypeChecker;
+    //protected languageServices : ts.LanguageService; // from ScopedSymbolTrackingWalker
+    //protected typeChecker : ts.TypeChecker; // from ScopedSymbolTrackingWalker
 
-    constructor(sourceFile: ts.SourceFile, options: Lint.IOptions, languageService : ts.LanguageService) {
-        super(sourceFile, options);
-        this.languageService = languageService;
-        this.typeChecker = languageService.getProgram().getTypeChecker();
+    constructor(sourceFile: ts.SourceFile, options: Lint.IOptions, languageService : ts.LanguageService, /*workarounds*/ typeChecker : ts.TypeChecker) {
+        //super(sourceFile, options);
+        super(sourceFile, options , languageService);
+        this.languageServices = languageService;
+        //this.typeChecker = languageService.getProgram().getTypeChecker(); /*workarounds*/
+        this.typeChecker = typeChecker; /*workarounds*/
     }
 
 
@@ -47,6 +64,10 @@ class NoCookiesWalker extends ErrorTolerantWalker {
         }
 
         super.visitPropertyAccessExpression(node);
+    }
+    protected visitIdentifier(node: ts.Identifier): void {
+        super.visitIdentifier(node);
+        AstUtils.dumpTypeInfo(node, this.languageServices, this.typeChecker);
     }
 
 }
